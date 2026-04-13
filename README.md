@@ -11,6 +11,11 @@ The script takes a free-text game request, generates a complete game with:
 Then it saves the game inside a local Git repo under a `games/` folder, commits the change, and pushes it to GitHub. :contentReference[oaicite:1]{index=1}
 
 ---
+## Demo Video
+
+[![Watch the demo](https://img.youtube.com/vi/nokyotwY3wY/0.jpg)](https://youtu.be/nokyotwY3wY)
+
+---
 
 ## What It Does
 
