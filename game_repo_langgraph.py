@@ -5,11 +5,14 @@ import argparse
 import subprocess
 from pathlib import Path
 from typing import TypedDict, Optional, Any, Dict, List
+from typing_extensions import Annotated
+from operator import add
 
 from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, START, END
+from datetime import datetime
 
 # ---------------------------
 # ENV
@@ -23,6 +26,7 @@ if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY is missing")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
+
 
 # ---------------------------
 # OUTPUT SCHEMA
@@ -48,27 +52,80 @@ class GameState(TypedDict, total=False):
     style_css: str
     script_js: str
 
-    target_root_dir: str
+    games_root: str
     game_dir: str
     commit_message: str
-    logs: List[str]
     result: Dict[str, Any]
     error: Optional[str]
 
-
-# ---------------------------
-# LOGGING
-# ---------------------------
-def log_step(state: GameState, message: str) -> None:
-    if "logs" not in state or state["logs"] is None:
-        state["logs"] = []
-    state["logs"].append(message)
-    print(f"[INFO] {message}", flush=True)
+    logs: Annotated[List[str], add]
 
 
 # ---------------------------
 # HELPERS
 # ---------------------------
+
+def split_versioned_name(folder_name: str) -> tuple[str, Optional[int]]:
+    match = re.match(r"^(.*)-(\d+)$", folder_name.strip(), re.IGNORECASE)
+    if not match:
+        return folder_name.strip(), None
+    return match.group(1).strip(), int(match.group(2))
+
+
+def get_next_version_dir(games_root: Path, base_name: str) -> Path:
+    base_slug = slugify(base_name)
+    max_version = 0
+
+    for child in games_root.iterdir():
+        if not child.is_dir():
+            continue
+
+        child_base, child_version = split_versioned_name(child.name)
+        if slugify(child_base) == base_slug and child_version is not None:
+            max_version = max(max_version, child_version)
+
+    next_version = max_version + 1
+    return games_root / f"{base_slug}-{next_version}"
+
+
+def resolve_latest_game_dir(games_root: Path, game_name: str) -> Path:
+    requested = game_name.strip()
+    requested_slug = slugify(requested)
+
+    exact_dir = games_root / requested
+    if exact_dir.exists() and exact_dir.is_dir():
+        return exact_dir
+
+    slug_dir = games_root / requested_slug
+    if slug_dir.exists() and slug_dir.is_dir():
+        return slug_dir
+
+    candidates: list[tuple[int, Path]] = []
+
+    for child in games_root.iterdir():
+        if not child.is_dir():
+            continue
+
+        child_base, child_version = split_versioned_name(child.name)
+
+        if slugify(child_base) == requested_slug:
+            version = child_version if child_version is not None else 0
+            candidates.append((version, child))
+
+    if candidates:
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates[0][1]
+
+    existing_dirs = sorted([p.name for p in games_root.iterdir() if p.is_dir()])
+    raise FileNotFoundError(
+        f"Game folder not found for '{game_name}'. Available folders: {existing_dirs}"
+    )
+
+def log(message: str) -> Dict[str, Any]:
+    print(f"[INFO] {message}", flush=True)
+    return {"logs": [message]}
+
+
 def slugify(text: str) -> str:
     text = text.strip().lower()
     text = re.sub(r"[^a-z0-9]+", "-", text)
@@ -98,13 +155,13 @@ def run_git(repo_path: Path, args: list[str], allow_fail: bool = False) -> None:
         )
 
 
-def read_text_if_exists(path: Path) -> str:
-    if path.exists():
-        return path.read_text(encoding="utf-8")
-    return ""
+def read_text(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8")
 
 
-def generate_new_game_with_openai(user_description: str) -> GameFiles:
+def call_model_for_new_game(user_description: str) -> GameFiles:
     system_prompt = """
 You create very small child-friendly browser games.
 
@@ -152,12 +209,11 @@ Return JSON only.
         ],
     )
 
-    content = response.choices[0].message.content
-    data = json.loads(content)
+    data = json.loads(response.choices[0].message.content)
     return GameFiles(**data)
 
 
-def edit_existing_game_with_openai(
+def call_model_for_edit(
     user_description: str,
     game_title: str,
     index_html: str,
@@ -174,7 +230,7 @@ Return ONLY valid JSON with exactly these keys:
 - script_js
 
 Rules:
-- Preserve the game as a simple browser game
+- Keep the game simple
 - Plain HTML, CSS, JavaScript only
 - No npm
 - No frameworks
@@ -182,12 +238,11 @@ Rules:
 - Must run by opening index.html directly
 - Keep code readable
 - Use English in code and comments
-- Apply the user's requested changes to the existing game files
+- Apply the user's requested changes to the existing files
+- Return the full updated files
 """
 
     user_prompt = f"""
-The user wants to edit an existing game.
-
 User request:
 {user_description}
 
@@ -203,7 +258,7 @@ Existing style.css:
 Existing script.js:
 {script_js}
 
-Return the full updated files as JSON only.
+Return JSON only.
 """
 
     response = client.chat.completions.create(
@@ -216,18 +271,16 @@ Return the full updated files as JSON only.
         ],
     )
 
-    content = response.choices[0].message.content
-    data = json.loads(content)
+    data = json.loads(response.choices[0].message.content)
     return GameFiles(**data)
 
 
 # ---------------------------
 # NODES
 # ---------------------------
-def resolve_target_game(state: GameState) -> GameState:
-    log_step(state, "Resolving repository and target game path")
-
+def prepare_paths(state: GameState) -> GameState:
     repo_path = Path(state["repo_path"]).resolve()
+
     if not repo_path.exists():
         raise FileNotFoundError(f"Repo path does not exist: {repo_path}")
 
@@ -237,66 +290,70 @@ def resolve_target_game(state: GameState) -> GameState:
     games_root = repo_path / "games"
     games_root.mkdir(parents=True, exist_ok=True)
 
-    mode = state.get("mode", "create").lower()
-    game_name = state.get("game_name")
-
-    if mode == "edit":
-        if not game_name:
-            raise ValueError("For edit mode, --game_name is required")
-
-        game_dir = games_root / slugify(game_name)
-        if not game_dir.exists():
-            raise FileNotFoundError(f"Game folder does not exist: {game_dir}")
-
-        log_step(state, f"Edit mode selected for existing game: {game_dir}")
-        return {
-            "target_root_dir": str(games_root),
-            "game_dir": str(game_dir),
-        }
-
-    log_step(state, "Create mode selected")
-    return {
-        "target_root_dir": str(games_root),
+    updates: GameState = {
+        "games_root": str(games_root),
+        "logs": [
+            f"Repository ready: {repo_path}",
+            f"Games folder ready: {games_root}",
+        ],
     }
 
+    print(f"[INFO] Repository ready: {repo_path}", flush=True)
+    print(f"[INFO] Games folder ready: {games_root}", flush=True)
 
-def generate_or_edit_game_files(state: GameState) -> GameState:
-    mode = state.get("mode", "create").lower()
+    if state.get("mode", "create") == "edit":
+        if not state.get("game_name"):
+            raise ValueError("game_name is required in edit mode")
+
+        game_dir = resolve_latest_game_dir(games_root, state["game_name"])
+
+        print(f"[INFO] Edit mode for latest matching game: {game_dir.name}", flush=True)
+
+        updates["game_dir"] = str(game_dir)
+        updates["logs"] = updates.get("logs", []) + [
+            f"Edit mode for latest matching game: {game_dir.name}"
+        ]
+    else:
+        print("[INFO] Create mode selected", flush=True)
+        updates["logs"] = updates.get("logs", []) + ["Create mode selected"]
+
+    return updates
+
+def generate_files(state: GameState) -> GameState:
+    mode = state.get("mode", "create")
 
     if mode == "edit":
         game_dir = Path(state["game_dir"]).resolve()
-        log_step(state, f"Loading existing files from: {game_dir}")
+        index_html = read_text(game_dir / "index.html")
+        style_css = read_text(game_dir / "style.css")
+        script_js = read_text(game_dir / "script.js")
 
-        existing_html = read_text_if_exists(game_dir / "index.html")
-        existing_css = read_text_if_exists(game_dir / "style.css")
-        existing_js = read_text_if_exists(game_dir / "script.js")
+        if not any([index_html, style_css, script_js]):
+            raise ValueError("Existing game files are missing")
 
-        if not existing_html and not existing_css and not existing_js:
-            raise ValueError("Existing game files are missing or empty")
-
-        existing_title = game_dir.name
-        log_step(state, "Sending existing game files to model for editing")
-
-        files = edit_existing_game_with_openai(
+        print(f"[INFO] Loading existing game from {game_dir}", flush=True)
+        files = call_model_for_edit(
             user_description=state["user_description"],
-            game_title=existing_title,
-            index_html=existing_html,
-            style_css=existing_css,
-            script_js=existing_js,
+            game_title=game_dir.name,
+            index_html=index_html,
+            style_css=style_css,
+            script_js=script_js,
         )
 
-        log_step(state, f"Model returned updated files for game: {files.title}")
         return {
             "title": files.title,
             "index_html": files.index_html,
             "style_css": files.style_css,
             "script_js": files.script_js,
             "commit_message": f"Edit game: {files.title}",
+            "logs": [
+                f"Loaded existing files from {game_dir.name}",
+                f"Model updated game: {files.title}",
+            ],
         }
 
-    log_step(state, "Sending new game request to model")
-    files = generate_new_game_with_openai(state["user_description"])
-    log_step(state, f"Model returned new game files: {files.title}")
+    print("[INFO] Generating new game with model", flush=True)
+    files = call_model_for_new_game(state["user_description"])
 
     return {
         "title": files.title,
@@ -304,49 +361,47 @@ def generate_or_edit_game_files(state: GameState) -> GameState:
         "style_css": files.style_css,
         "script_js": files.script_js,
         "commit_message": f"Add game: {files.title}",
+        "logs": [f"Model generated new game: {files.title}"],
     }
 
 
-def save_game_to_repo(state: GameState) -> GameState:
+def save_files(state: GameState) -> GameState:
     repo_path = Path(state["repo_path"]).resolve()
-    games_root = Path(state["target_root_dir"]).resolve()
 
-    if state.get("mode", "create").lower() == "edit":
+    if state.get("mode", "create") == "edit":
         game_dir = Path(state["game_dir"]).resolve()
-        log_step(state, f"Saving updated files into existing folder: {game_dir}")
     else:
-        game_slug = slugify(state["title"])
-        game_dir = games_root / game_slug
+        game_dir = get_next_version_dir(
+            Path(state["games_root"]).resolve(),
+            state["title"]
+        )
         game_dir.mkdir(parents=True, exist_ok=True)
-        log_step(state, f"Saving new game into folder: {game_dir}")
 
     (game_dir / "index.html").write_text(state["index_html"], encoding="utf-8")
     (game_dir / "style.css").write_text(state["style_css"], encoding="utf-8")
     (game_dir / "script.js").write_text(state["script_js"], encoding="utf-8")
 
-    relative_game_dir = str(game_dir.relative_to(repo_path))
-    log_step(state, f"Files written successfully under: {relative_game_dir}")
+    relative_dir = str(game_dir.relative_to(repo_path))
+    print(f"[INFO] Saved files to {relative_dir}", flush=True)
 
     return {
         "game_dir": str(game_dir),
+        "logs": [f"Saved files to {relative_dir}"],
     }
 
-
-def git_publish(state: GameState) -> GameState:
+def publish_to_git(state: GameState) -> GameState:
     repo_path = Path(state["repo_path"]).resolve()
     game_dir = Path(state["game_dir"]).resolve()
-    relative_game_dir = str(game_dir.relative_to(repo_path))
+    relative_dir = str(game_dir.relative_to(repo_path))
 
-    log_step(state, f"Running git add for: {relative_game_dir}")
-    run_git(repo_path, ["add", relative_game_dir])
+    print(f"[INFO] git add {relative_dir}", flush=True)
+    run_git(repo_path, ["add", relative_dir])
 
-    log_step(state, f"Running git commit: {state['commit_message']}")
+    print(f"[INFO] git commit -m \"{state['commit_message']}\"", flush=True)
     run_git(repo_path, ["commit", "-m", state["commit_message"]], allow_fail=True)
 
-    log_step(state, "Running git push")
+    print("[INFO] git push", flush=True)
     run_git(repo_path, ["push"], allow_fail=False)
-
-    log_step(state, "Git publish completed successfully")
 
     return {
         "result": {
@@ -360,8 +415,9 @@ def git_publish(state: GameState) -> GameState:
             ],
             "commit_message": state["commit_message"],
             "model_used": MINI_GPT,
-            "logs": state.get("logs", []),
-        }
+            "logs": state.get("logs", []) + ["Git push completed"],
+        },
+        "logs": ["Git publish completed"],
     }
 
 
@@ -371,16 +427,16 @@ def git_publish(state: GameState) -> GameState:
 def build_graph():
     graph = StateGraph(GameState)
 
-    graph.add_node("resolve_target_game", resolve_target_game)
-    graph.add_node("generate_or_edit_game_files", generate_or_edit_game_files)
-    graph.add_node("save_game_to_repo", save_game_to_repo)
-    graph.add_node("git_publish", git_publish)
+    graph.add_node("prepare_paths", prepare_paths)
+    graph.add_node("generate_files", generate_files)
+    graph.add_node("save_files", save_files)
+    graph.add_node("publish_to_git", publish_to_git)
 
-    graph.add_edge(START, "resolve_target_game")
-    graph.add_edge("resolve_target_game", "generate_or_edit_game_files")
-    graph.add_edge("generate_or_edit_game_files", "save_game_to_repo")
-    graph.add_edge("save_game_to_repo", "git_publish")
-    graph.add_edge("git_publish", END)
+    graph.add_edge(START, "prepare_paths")
+    graph.add_edge("prepare_paths", "generate_files")
+    graph.add_edge("generate_files", "save_files")
+    graph.add_edge("save_files", "publish_to_git")
+    graph.add_edge("publish_to_git", END)
 
     return graph.compile()
 
@@ -396,20 +452,20 @@ def main():
         "--mode",
         choices=["create", "edit"],
         default="create",
-        help="Create a new game or edit an existing one"
+        help="Create a new game or edit an existing one",
     )
     parser.add_argument(
         "--game_name",
         default=None,
-        help="Existing game folder name for edit mode"
+        help="Existing game folder name for edit mode",
     )
     args = parser.parse_args()
 
     app = build_graph()
 
     initial_state: GameState = {
-        "user_description": args.description,
         "repo_path": args.repo_path,
+        "user_description": args.description,
         "mode": args.mode,
         "game_name": args.game_name,
         "logs": [],
@@ -419,7 +475,7 @@ def main():
         print("[INFO] Starting workflow", flush=True)
         result = app.invoke(initial_state)
         print("[INFO] Workflow finished", flush=True)
-        print(json.dumps(result.get("result", result), indent=2, ensure_ascii=False))
+        print(json.dumps(result["result"], indent=2, ensure_ascii=False))
     except Exception as exc:
         error_payload = {
             "error": str(exc),
