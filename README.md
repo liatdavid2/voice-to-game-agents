@@ -8,7 +8,7 @@ The script takes a free-text game request, generates a complete game with:
 - `style.css`
 - `script.js`
 
-Then it saves the game inside a local Git repo under a `games/` folder, commits the change, and pushes it to GitHub. :contentReference[oaicite:1]{index=1}
+Then it saves the game inside a local Git repo under a `games/` folder, commits the change, and pushes it to GitHub.
 
 ---
 ## Demo Video
