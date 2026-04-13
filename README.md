@@ -25,8 +25,8 @@ This project supports two modes:
 - Takes a free-text description
 - Uses OpenAI to generate a new game
 - Saves it in a new versioned folder such as:
-  - `games/doll-house-pool-game-1`
-  - `games/doll-house-pool-game-2`
+  - `games/fairy-star-collector-1`
+  - `games/fairy-star-collector-2`
 
 ### 2. Edit an existing game
 - Finds the latest matching game folder
@@ -34,7 +34,7 @@ This project supports two modes:
 - Sends them to the model with the new request
 - Saves the updated files back into that existing folder
 
-The workflow is orchestrated with LangGraph nodes. :contentReference[oaicite:2]{index=2}
+The workflow is orchestrated with LangGraph nodes.
 
 ---
 
@@ -60,7 +60,6 @@ python game_repo_langgraph.py ^
   --mode create ^
   --description "Create a simple purple game where a fairy collects stars and bubbles."
   ```
-
 
 
 ### Edit an existing game
