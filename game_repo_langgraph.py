@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, START, END
-from datetime import datetime
+from game_image_assets import generate_game_images
 
 # ---------------------------
 # ENV
@@ -51,6 +51,7 @@ class GameState(TypedDict, total=False):
     index_html: str
     style_css: str
     script_js: str
+    character_images: Dict[str, str]
 
     games_root: str
     game_dir: str
@@ -161,7 +162,15 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def call_model_for_new_game(user_description: str) -> GameFiles:
+def call_model_for_new_game(
+    user_description: str,
+    character_images: Optional[Dict[str, str]] = None
+) -> GameFiles:
+    
+    image_text = ""
+    if character_images:
+        lines = [f"- {role}: {path}" for role, path in character_images.items()]
+        image_text = "Available local images:\n" + "\n".join(lines)
     system_prompt = """
 You create very small child-friendly browser games.
 
@@ -191,11 +200,14 @@ Rules:
 User description:
 {user_description}
 
+{image_text}
+
 Create a complete playable game using only:
 - index.html
 - style.css
 - script.js
 
+If local images are provided, use these exact relative paths in the game.
 Return JSON only.
 """
 
@@ -219,7 +231,12 @@ def call_model_for_edit(
     index_html: str,
     style_css: str,
     script_js: str,
+    character_images: Optional[Dict[str, str]] = None,
 ) -> GameFiles:
+    image_text = ""
+    if character_images:
+        lines = [f"- {role}: {path}" for role, path in character_images.items()]
+        image_text = "Available local images:\n" + "\n".join(lines)
     system_prompt = """
 You edit an existing very small child-friendly browser game.
 
@@ -246,6 +263,8 @@ Rules:
 User request:
 {user_description}
 
+{image_text}
+
 Existing title:
 {game_title}
 
@@ -258,6 +277,7 @@ Existing style.css:
 Existing script.js:
 {script_js}
 
+If local images are provided, use these exact relative paths in the updated game.
 Return JSON only.
 """
 
@@ -278,6 +298,37 @@ Return JSON only.
 # ---------------------------
 # NODES
 # ---------------------------
+def generate_images(state: GameState) -> GameState:
+    if state.get("mode", "create") == "edit":
+        game_dir = Path(state["game_dir"]).resolve()
+    else:
+        game_dir = get_next_version_dir(
+            Path(state["games_root"]).resolve(),
+            state.get("title", state["user_description"])
+        )
+        game_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"[INFO] Generating image assets in {game_dir / 'images'}", flush=True)
+
+    character_images = generate_game_images(
+        user_description=state["user_description"],
+        game_dir=game_dir,
+        client=client,
+        model_name=MINI_GPT,
+    )
+
+    logs = [f"Generated image assets: {list(character_images.keys())}"]
+
+    updates: GameState = {
+        "character_images": character_images,
+        "logs": logs,
+    }
+
+    if state.get("mode", "create") != "edit":
+        updates["game_dir"] = str(game_dir)
+
+    return updates
+
 def prepare_paths(state: GameState) -> GameState:
     repo_path = Path(state["repo_path"]).resolve()
 
@@ -333,12 +384,13 @@ def generate_files(state: GameState) -> GameState:
 
         print(f"[INFO] Loading existing game from {game_dir}", flush=True)
         files = call_model_for_edit(
-            user_description=state["user_description"],
-            game_title=game_dir.name,
-            index_html=index_html,
-            style_css=style_css,
-            script_js=script_js,
-        )
+        user_description=state["user_description"],
+        game_title=game_dir.name,
+        index_html=index_html,
+        style_css=style_css,
+        script_js=script_js,
+        character_images=state.get("character_images"),
+    )
 
         return {
             "title": files.title,
@@ -353,7 +405,10 @@ def generate_files(state: GameState) -> GameState:
         }
 
     print("[INFO] Generating new game with model", flush=True)
-    files = call_model_for_new_game(state["user_description"])
+    files = call_model_for_new_game(
+    state["user_description"],
+    character_images=state.get("character_images"),
+    )
 
     return {
         "title": files.title,
@@ -368,7 +423,10 @@ def generate_files(state: GameState) -> GameState:
 def save_files(state: GameState) -> GameState:
     repo_path = Path(state["repo_path"]).resolve()
 
-    if state.get("mode", "create") == "edit":
+    if state.get("game_dir"):
+        game_dir = Path(state["game_dir"]).resolve()
+        game_dir.mkdir(parents=True, exist_ok=True)
+    elif state.get("mode", "create") == "edit":
         game_dir = Path(state["game_dir"]).resolve()
     else:
         game_dir = get_next_version_dir(
@@ -428,12 +486,16 @@ def build_graph():
     graph = StateGraph(GameState)
 
     graph.add_node("prepare_paths", prepare_paths)
+    graph.add_node("generate_images", generate_images)
     graph.add_node("generate_files", generate_files)
     graph.add_node("save_files", save_files)
     graph.add_node("publish_to_git", publish_to_git)
-
+    print('------------generate_images----------------------------')
+    
+    
     graph.add_edge(START, "prepare_paths")
-    graph.add_edge("prepare_paths", "generate_files")
+    graph.add_edge("prepare_paths", "generate_images")
+    graph.add_edge("generate_images", "generate_files")
     graph.add_edge("generate_files", "save_files")
     graph.add_edge("save_files", "publish_to_git")
     graph.add_edge("publish_to_git", END)
