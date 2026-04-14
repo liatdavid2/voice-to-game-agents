@@ -1,5 +1,4 @@
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -36,7 +35,7 @@ HTML_PAGE = """
       padding: 20px;
       box-shadow: 0 4px 18px rgba(0,0,0,0.08);
     }
-    button {
+    button, select {
       border: none;
       border-radius: 12px;
       padding: 12px 18px;
@@ -56,6 +55,11 @@ HTML_PAGE = """
     .create {
       background: #26a69a;
       color: white;
+    }
+    .lang-select {
+      background: #ffffff;
+      color: #222;
+      border: 1px solid #ccc;
     }
     textarea {
       width: 100%;
@@ -83,6 +87,17 @@ HTML_PAGE = """
       margin-top: 12px;
       font-weight: bold;
     }
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    label {
+      font-size: 14px;
+      color: #444;
+    }
   </style>
 </head>
 <body>
@@ -91,8 +106,17 @@ HTML_PAGE = """
   <div class="card">
     <p class="small">
       Click Record, speak the game idea, then click Create Game.
+      You can switch between Hebrew and English.
       Best support is usually in Chrome or Edge.
     </p>
+
+    <div class="row">
+      <label for="language">Language:</label>
+      <select id="language" class="lang-select">
+        <option value="he-IL">עברית</option>
+        <option value="en-US" selected>English</option>
+      </select>
+    </div>
 
     <button class="record" onclick="startRecording()">Record</button>
     <button class="stop" onclick="stopRecording()">Stop</button>
@@ -114,6 +138,10 @@ HTML_PAGE = """
       document.getElementById("status").innerText = text;
     }
 
+    function getSelectedLanguage() {
+      return document.getElementById("language").value;
+    }
+
     function startRecording() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -123,7 +151,7 @@ HTML_PAGE = """
       }
 
       recognition = new SpeechRecognition();
-      recognition.lang = "en-US";
+      recognition.lang = getSelectedLanguage();
       recognition.interimResults = true;
       recognition.continuous = false;
 
@@ -161,6 +189,7 @@ HTML_PAGE = """
     async function createGame() {
       const description = document.getElementById("description").value.trim();
       const output = document.getElementById("output");
+      const language = getSelectedLanguage();
 
       if (!description) {
         setStatus("Please record or type a game description first.");
@@ -177,7 +206,8 @@ HTML_PAGE = """
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            description: description
+            description: description,
+            language: language
           })
         });
 
@@ -209,6 +239,7 @@ def index():
 def create_game():
     payload = request.get_json(force=True)
     description = (payload.get("description") or "").strip()
+    language = (payload.get("language") or "").strip()
 
     if not description:
         return jsonify({"error": "Missing description"}), 400
@@ -236,6 +267,7 @@ def create_game():
 
     response = {
         "command": cmd,
+        "language": language,
         "returncode": result.returncode,
         "stdout": result.stdout,
         "stderr": result.stderr,
