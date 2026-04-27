@@ -163,6 +163,39 @@ def read_text(path: Path) -> str:
         return ""
     return path.read_text(encoding="utf-8")
 
+def fix_missing_image_paths(
+    text: str,
+    game_dir: Path,
+    character_images: Optional[Dict[str, str]],
+) -> str:
+    if not character_images:
+        return text
+
+    existing_images = []
+
+    for relative_path in character_images.values():
+        image_path = game_dir / relative_path
+        if image_path.exists():
+            existing_images.append(relative_path)
+
+    if not existing_images:
+        return text
+
+    fallback_image = existing_images[0]
+
+    pattern = re.compile(
+        r"images/[A-Za-z0-9_./-]+\.(?:png|jpg|jpeg|webp)",
+        re.IGNORECASE,
+    )
+
+    def replace_missing(match: re.Match) -> str:
+        relative_path = match.group(0)
+        if (game_dir / relative_path).exists():
+            return relative_path
+        return fallback_image
+
+    return pattern.sub(replace_missing, text)
+
 
 def call_model_for_new_game(
     user_description: str,
@@ -196,6 +229,17 @@ Rules:
 - Include clear win or lose message
 - Keep code readable
 - Use English in code and comments
+- Never invent image paths.
+- Never reference images/princess1.png, images/princess2.png, or any other image file unless it appears in Available local images.
+- If local images are provided, use only those exact relative paths.
+- If there are not enough local images, use CSS shapes, colors, text, or emoji instead of fake image files.
+- Display character/object images at small in-game sizes, usually 80px to 140px wide.
+- Use at most one or two local images in the game.
+- If the game is a memory game, reuse the same image across multiple pairs.
+- Differentiate pairs using background colors, borders, symbols, badges, numbers, or simple labels.
+- If there are not enough local images, do not invent new files. Use CSS colors and symbols instead.
+- For memory games, each pair may share the same image path but must have a distinct color and symbol combination.
+
 """
 
     user_prompt = f"""
@@ -211,6 +255,7 @@ Create a complete playable game using only:
 
 If local images are provided, use these exact relative paths in the game.
 Return JSON only.
+If only one or two local images are available, reuse them and create variety using colors, symbols, numbers, and borders.
 """
 
     response = client.chat.completions.create(
@@ -259,6 +304,16 @@ Rules:
 - Use English in code and comments
 - Apply the user's requested changes to the existing files
 - Return the full updated files
+- Never invent image paths.
+- Never reference images/princess1.png, images/princess2.png, or any other image file unless it appears in Available local images.
+- If local images are provided, use only those exact relative paths.
+- If there are not enough local images, use CSS shapes, colors, text, or emoji instead of fake image files.
+- Display character/object images at small in-game sizes, usually 80px to 140px wide.
+- Use at most one or two local images in the game.
+- If the game is a memory game, reuse the same image across multiple pairs.
+- Differentiate pairs using background colors, borders, symbols, badges, numbers, or simple labels.
+- If there are not enough local images, do not invent new files. Use CSS colors and symbols instead.
+- For memory games, each pair may share the same image path but must have a distinct color and symbol combination.
 """
 
     user_prompt = f"""
@@ -281,6 +336,7 @@ Existing script.js:
 
 If local images are provided, use these exact relative paths in the updated game.
 Return JSON only.
+If only one or two local images are available, reuse them and create variety using colors, symbols, numbers, and borders.
 """
 
     response = client.chat.completions.create(
@@ -443,9 +499,29 @@ def save_files(state: GameState) -> GameState:
         )
         game_dir.mkdir(parents=True, exist_ok=True)
 
-    (game_dir / "index.html").write_text(state["index_html"], encoding="utf-8")
-    (game_dir / "style.css").write_text(state["style_css"], encoding="utf-8")
-    (game_dir / "script.js").write_text(state["script_js"], encoding="utf-8")
+    character_images = state.get("character_images") or {}
+
+    index_html = fix_missing_image_paths(
+        state["index_html"],
+        game_dir,
+        character_images,
+    )
+
+    style_css = fix_missing_image_paths(
+        state["style_css"],
+        game_dir,
+        character_images,
+    )
+
+    script_js = fix_missing_image_paths(
+        state["script_js"],
+        game_dir,
+        character_images,
+    )
+
+    (game_dir / "index.html").write_text(index_html, encoding="utf-8")
+    (game_dir / "style.css").write_text(style_css, encoding="utf-8")
+    (game_dir / "script.js").write_text(script_js, encoding="utf-8")
 
     relative_dir = str(game_dir.relative_to(repo_path))
     print(f"[INFO] Saved files to {relative_dir}", flush=True)

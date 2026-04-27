@@ -2,8 +2,16 @@ import base64
 import json
 from pathlib import Path
 from typing import Dict, List, Optional
+import os
+from io import BytesIO
+from PIL import Image
 
 from openai import OpenAI
+
+IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-1-mini")
+IMAGE_MAX_SIZE = int(os.getenv("IMAGE_MAX_SIZE", "256"))
+IMAGE_QUALITY = int(os.getenv("IMAGE_QUALITY", "80"))
+MAX_IMAGE_ROLES = int(os.getenv("MAX_IMAGE_ROLES", "2"))
 
 
 def ensure_images_dir(game_dir: Path) -> Path:
@@ -71,16 +79,23 @@ def generate_single_image(
     prompt: str,
     output_path: Path,
     size: str = "1024x1024",
-) -> None:
+) -> Path:
     result = client.images.generate(
-        model="gpt-image-1-mini",
+        model=IMAGE_MODEL,
         prompt=prompt,
         size=size,
     )
 
     image_base64 = result.data[0].b64_json
     image_bytes = base64.b64decode(image_base64)
-    output_path.write_bytes(image_bytes)
+
+    img = Image.open(BytesIO(image_bytes)).convert("RGBA")
+    img.thumbnail((IMAGE_MAX_SIZE, IMAGE_MAX_SIZE))
+
+    output_path = output_path.with_suffix(".webp")
+    img.save(output_path, format="WEBP", quality=IMAGE_QUALITY, method=6)
+
+    return output_path
 
 
 def generate_game_images(
@@ -92,18 +107,35 @@ def generate_game_images(
     images_dir = ensure_images_dir(game_dir)
     image_plan = build_image_plan(user_description, client, model_name)
 
+    preferred_order = ["player", "collectible", "enemy", "background"]
+
+    filtered_plan: Dict[str, str] = {}
+
+    for role in preferred_order:
+        if role in image_plan:
+            filtered_plan[role] = image_plan[role]
+        if len(filtered_plan) >= MAX_IMAGE_ROLES:
+            break
+
+    if not filtered_plan:
+        for role, prompt in image_plan.items():
+            filtered_plan[role] = prompt
+            if len(filtered_plan) >= MAX_IMAGE_ROLES:
+                break
+
     generated_paths: Dict[str, str] = {}
 
-    for role, prompt in image_plan.items():
-        filename = f"{role}.png"
+    for role, prompt in filtered_plan.items():
+        clean_role = role.lower().replace(" ", "_").replace("-", "_")
+        filename = f"{clean_role}.png"
         output_path = images_dir / filename
 
-        generate_single_image(
+        saved_path = generate_single_image(
             client=client,
             prompt=prompt,
             output_path=output_path,
         )
 
-        generated_paths[role] = f"images/{filename}"
+        generated_paths[role] = f"images/{saved_path.name}"
 
     return generated_paths
