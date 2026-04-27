@@ -1,0 +1,17 @@
+services:
+  game-creator:
+    build: .
+    container_name: magic-game-creator
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      REPO_PATH: /app/workspace
+      PUBLISH_TO_GIT: "false"
+      GENERATE_IMAGES: "false"
+      HOST: 0.0.0.0
+      PORT: "5000"
+    volumes:
+      - ./workspace:/app/workspace
+    restart: unless-stopped

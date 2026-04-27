@@ -1,3 +1,6 @@
 /.venv
 .env
 /__pycache__
+game_creator_docker_local/.env.example
+game_creator_docker_local.zip
+game_library_ui.zip
