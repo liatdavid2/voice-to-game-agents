@@ -1,0 +1,80 @@
+/* Style for Giant Bubbles Catcher game */
+body {
+    font-family: Arial, sans-serif;
+    background: #e0f7fa;
+    margin: 0;
+    padding: 20px;
+    text-align: center;
+    user-select: none;
+}
+h1 {
+    color: #00796b;
+    margin-bottom: 10px;
+}
+#game-container {
+    position: relative;
+    margin: 0 auto;
+    width: 600px;
+    height: 400px;
+    background: #b2ebf2;
+    border: 3px solid #00796b;
+    border-radius: 12px;
+    overflow: hidden;
+}
+#player {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100px;
+    height: auto;
+    pointer-events: none;
+    user-select: none;
+}
+.bubble {
+    position: absolute;
+    border-radius: 50%;
+    width: 120px;
+    height: 120px;
+    border: 5px solid;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 48px;
+    font-weight: bold;
+    color: white;
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.2s ease;
+}
+.bubble:active {
+    transform: scale(0.9);
+}
+#info {
+    margin-top: 15px;
+    font-size: 20px;
+    color: #004d40;
+}
+#start-btn {
+    margin-top: 10px;
+    padding: 10px 20px;
+    font-size: 18px;
+    background-color: #00796b;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+#start-btn:hover:not(:disabled) {
+    background-color: #004d40;
+}
+#start-btn:disabled {
+    background-color: #a7a7a7;
+    cursor: default;
+}
+#message {
+    margin-top: 15px;
+    font-weight: bold;
+    min-height: 30px;
+}

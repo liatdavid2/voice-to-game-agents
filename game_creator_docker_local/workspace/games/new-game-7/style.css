@@ -1,0 +1,81 @@
+/* Basic reset and styling */
+body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+    background: #e0f7fa;
+    margin: 0;
+    padding: 20px;
+    user-select: none;
+}
+
+h1 {
+    margin-bottom: 10px;
+    color: #00796b;
+}
+
+#game-container {
+    position: relative;
+    width: 600px;
+    height: 400px;
+    margin: 0 auto 20px auto;
+    background: #b2dfdb;
+    border: 3px solid #004d40;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+#player {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    cursor: pointer;
+    transition: left 0.1s ease;
+    user-select: none;
+}
+
+.bubble {
+    position: absolute;
+    border-radius: 50%;
+    border: 3px solid #004d40;
+    background-image: url('images/collectible.webp');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    cursor: default;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-weight: bold;
+    color: white;
+    text-shadow: 1px 1px 2px #004d40;
+    user-select: none;
+}
+
+#info {
+    font-size: 20px;
+    color: #004d40;
+}
+
+#start-button {
+    margin-top: 10px;
+    padding: 8px 16px;
+    font-size: 18px;
+    background-color: #00796b;
+    border: none;
+    border-radius: 5px;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+#start-button:hover {
+    background-color: #004d40;
+}
+
+#message {
+    margin-top: 15px;
+    font-size: 24px;
+    font-weight: bold;
+    min-height: 30px;
+}

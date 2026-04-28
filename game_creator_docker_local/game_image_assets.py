@@ -30,13 +30,18 @@ User description:
 Return ONLY valid JSON.
 
 Rules:
-- Return a small dictionary of image roles and prompts
+Rules:
+- Return a very small dictionary of image roles and prompts
+- Return at most 2 roles
 - Keep it simple
 - Prefer these roles when relevant:
   - player
   - collectible
-  - enemy
-  - background
+- Avoid returning many separate character images
+- For memory games, one character image is enough
+- Prompts should describe cute colorful child-friendly art
+- For character/object images, prefer transparent background
+- For background, describe a full scene only if really needed
 - Each value must be a short image-generation prompt
 - Prompts should describe cute colorful child-friendly art
 - For character/object images, prefer transparent background
