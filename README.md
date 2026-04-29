@@ -89,44 +89,6 @@ The child should click balloons, collect gifts, and decorate a cake.
 
 The same agent workflow can process both requests and generate a playable browser game.
 
-## Game Library
-
-The Game Library provides a visual interface for browsing generated games.
-
-Instead of opening folders manually, users can view all generated games in one place.
-
-Each game can be opened in two modes:
-
-```text
-Play Game
-Edit Game
-```
-
-This makes the platform easier for children because they can choose games visually instead of reading folder names or technical file paths.
-
-Suggested flow:
-
-```text
-Open Game Library
-        |
-        v
-Choose a game card
-        |
-        v
-Play Game or Edit Game
-```
-
-The library can scan the `games/` folder and display each generated game as a card.
-
-Each card can include:
-
-```text
-Game title
-Preview image or simple visual placeholder
-Play button
-Edit button
-Version/folder name
-```
 
 ## Cost-Aware Image Generation
 
@@ -272,6 +234,46 @@ Optionally commits and pushes the generated game to Git for GitHub Pages deploym
 
 Scans the `games/` folder and displays generated games in a visual library with Play and Edit options.
 
+## Game Library
+
+The Game Library provides a visual interface for browsing generated games.
+
+Instead of opening folders manually, users can view all generated games in one place.
+
+Each game can be opened in two modes:
+
+```text
+Play Game
+Edit Game
+```
+
+This makes the platform easier for children because they can choose games visually instead of reading folder names or technical file paths.
+
+Suggested flow:
+
+```text
+Open Game Library
+        |
+        v
+Choose a game card
+        |
+        v
+Play Game or Edit Game
+```
+
+The library can scan the `games/` folder and display each generated game as a card.
+
+Each card can include:
+
+```text
+Game title
+Preview image or simple visual placeholder
+Play button
+Edit button
+Version/folder name
+```
+
+
 ## Docker Support
 
 The platform can run inside Docker, making the environment reproducible and easy to deploy.
@@ -279,3 +281,4 @@ The platform can run inside Docker, making the environment reproducible and easy
 Docker is used to package the Python agent workflow, dependencies, environment configuration, and game generation runtime into a single container.
 
 This makes it easier to run the project consistently across local machines, demos, and cloud environments.
+
